@@ -1,53 +1,30 @@
+#FROM resin/%%RESIN_MACHINE_NAME%%-python:2.7
 FROM resin/%%RESIN_MACHINE_NAME%%-node:6
 
-# Defines our working directory in container
-WORKDIR /usr/src/app
+# -- Start of revised resin-wifi-connect section -- #
+#FROM resin/%%RESIN_MACHINE_NAME%%-debian
 
-# Enable systemd init system in container
 ENV INITSYSTEM on
 
-# We have split up the resin-wifi-connect and Display-O-Tron HAT configuration to make clear
-# the different parts needed. In your dockerfile you should combine these steps to reduce
-# the number of layers.
+RUN apt-get update \
+    && apt-get install -y dnsmasq \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
-# -- Start of resin-wifi-connect section -- #
+RUN mkdir -p /usr/src/app/
 
-# Set the device type environment variable using Dockerfile templates
-ENV DEVICE_TYPE=%%RESIN_MACHINE_NAME%%
+WORKDIR /usr/src/app
 
-# Use apt-get to install dependencies
-RUN apt-get update && apt-get install -yq --no-install-recommends \
-    dnsmasq \
-    hostapd \
-    iproute2 \
-    iw \
-    libdbus-1-dev \
-    libexpat-dev \
-    rfkill && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
+RUN curl https://api.github.com/repos/resin-io/resin-wifi-connect/releases/latest -s \
+    | grep -hoP 'browser_download_url": "\K.*%%RESIN_ARCH%%\.tar\.gz' \
+    | xargs -n1 curl -Ls \
+    | tar -xvz -C /usr/src/app/
 
-# Install node
-ENV NODE_VERSION 6.9.1
-RUN curl -SLO "http://nodejs.org/dist/v$NODE_VERSION/node-v$NODE_VERSION-linux-armv6l.tar.gz" && \
-    echo "0b30184fe98bd22b859db7f4cbaa56ecc04f7f526313c8da42315d89fabe23b2  node-v$NODE_VERSION-linux-armv6l.tar.gz" | sha256sum -c - && \
-    tar -xzf "node-v$NODE_VERSION-linux-armv6l.tar.gz" -C /usr/local --strip-components=1 && \
-    rm "node-v$NODE_VERSION-linux-armv6l.tar.gz" && \
-    npm config set unsafe-perm true -g --unsafe-perm && \
-    rm -rf /tmp/*
+COPY start.sh .
 
-# Install resin-wifi-connect
-ENV RESIN_WIFI_CONNECT_VERSION 2.0.7
-RUN curl -SL "https://github.com/resin-io/resin-wifi-connect/archive/v$RESIN_WIFI_CONNECT_VERSION.tar.gz" \
-    | tar xzC /usr/src/app/ && \
-    mv resin-wifi-connect-$RESIN_WIFI_CONNECT_VERSION resin-wifi-connect && \
-    cd resin-wifi-connect && \
-    JOBS=MAX npm install --unsafe-perm --production && \
-    npm cache clean && \
-    ./node_modules/.bin/bower --allow-root install && \
-    ./node_modules/.bin/bower --allow-root cache clean && \
-    ./node_modules/.bin/coffee -c ./src
+# -- End of revised resin-wifi-connect section -- #
 
-# -- End of resin-wifi-connect section -- #
+
 
 # -- Start of myConnectedFrame section -- #
 # Install other apt deps
@@ -69,7 +46,7 @@ RUN echo "#!/bin/bash" > /etc/X11/xinit/xserverrc \
   && echo 'exec /usr/bin/X -s 0 dpms -nocursor -nolisten tcp "$@"' >> /etc/X11/xinit/xserverrc
 
 # Defines our working directory in container
-#WORKDIR /usr/src/app
+#WORKDIR /usr/src/app # defined above
 
 # Copies the package.json first for better cache on later pushes
 COPY package.json package.json
@@ -81,11 +58,8 @@ RUN JOBS=MAX npm install --production --unsafe-perm && npm cache clean && rm -rf
 # This will copy all files in our root to the working  directory in the container
 COPY . ./
 
-# Install cronjobs to turn display on and off
-RUN crontab jobs.txt
-
 # Enable systemd init system in container
-#ENV INITSYSTEM on
+#ENV INITSYSTEM on # defined above
 
 # Start app
 CMD ["bash", "/usr/src/app/start.sh"]
